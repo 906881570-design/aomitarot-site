@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.com.aomi.mystictarot",
+        "paths": ["/daily", "/store", "/s/*"]
+      }
+    ]
+  }
+}
