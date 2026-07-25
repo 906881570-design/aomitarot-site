@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>奥秘塔罗 · 账户</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", sans-serif;
+    background: #0A0710; color: #E8D5B7;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; margin: 0; padding: 24px;
+  }
+  .card {
+    width: 100%; max-width: 380px; text-align: center;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(214,168,90,0.25);
+    border-radius: 18px; padding: 40px 28px;
+  }
+  h1 { color: #D6A85A; font-size: 26px; letter-spacing: 4px; margin: 0 0 8px; }
+  .sub { color: #C8BBA4; font-size: 14px; line-height: 1.7; margin: 0 0 28px; }
+  input {
+    width: 100%; padding: 14px 16px; margin: 8px 0;
+    background: rgba(255,255,255,0.05); color: #E8D5B7;
+    border: 1px solid rgba(214,168,90,0.3); border-radius: 12px;
+    font-size: 16px; outline: none;
+  }
+  input:focus { border-color: #D6A85A; }
+  button {
+    width: 100%; padding: 14px; margin-top: 16px;
+    background: #D6A85A; color: #0A0710;
+    border: none; border-radius: 12px;
+    font-size: 16px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .msg { font-size: 14px; line-height: 1.7; margin-top: 16px; min-height: 20px; }
+  .ok { color: #7FCF9F; }
+  .err { color: #E08A7A; }
+  .hint { color: #8A7E6C; font-size: 12px; margin-top: 24px; }
+  .icon { font-size: 40px; margin-bottom: 12px; }
+  #resetForm { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>奥秘塔罗</h1>
+  <div id="loading" class="sub">正在处理…</div>
+
+  <!-- 重置密码表单 -->
+  <div id="resetForm">
+    <p class="sub">设置你的新密码</p>
+    <input id="pw1" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password">
+    <input id="pw2" type="password" placeholder="再次输入新密码" autocomplete="new-password">
+    <button id="submitBtn" onclick="doReset()">确认重置</button>
+    <div id="resetMsg" class="msg"></div>
+  </div>
+
+  <!-- 通用结果面板 -->
+  <div id="panel" style="display:none;">
+    <div id="panelIcon" class="icon"></div>
+    <div id="panelMsg" class="sub"></div>
+  </div>
+
+  <div class="hint">重置或确认完成后，请返回「奥秘塔罗」App 登录。</div>
+</div>
+
+<script>
+  var SUPABASE_URL = "https://bddsyynlkdaksfsbuloe.supabase.co";
+  var APIKEY = "sb_publishable_evyyS1SRTW85FDxG08JWwA_xZKVr3nV";
+  var accessToken = null;
+
+  // 解析 URL # 片段（Supabase 跳转把令牌放在 hash 里）
+  function parseHash() {
+    var h = window.location.hash.replace(/^#/, "");
+    var p = {};
+    h.split("&").forEach(function (kv) {
+      var i = kv.indexOf("=");
+      if (i > 0) p[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
+    });
+    return p;
+  }
+
+  function showPanel(icon, msg, cls) {
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("resetForm").style.display = "none";
+    document.getElementById("panel").style.display = "block";
+    document.getElementById("panelIcon").textContent = icon;
+    var m = document.getElementById("panelMsg");
+    m.textContent = msg;
+    m.className = "sub " + (cls || "");
+  }
+
+  function boot() {
+    var p = parseHash();
+    if (p.error_description || p.error) {
+      showPanel("⚠️", decodeURIComponent(p.error_description || p.error).replace(/\+/g, " "), "err");
+      return;
+    }
+    if (p.access_token && p.type === "recovery") {
+      // 进入重置密码流程
+      accessToken = p.access_token;
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("resetForm").style.display = "block";
+      return;
+    }
+    if (p.access_token) {
+      // 注册确认 / 其它成功回跳
+      showPanel("✅", "邮箱已确认，账户已激活。请返回「奥秘塔罗」App 登录。", "ok");
+      return;
+    }
+    // 直接访问、无令牌
+    showPanel("🔮", "请从「奥秘塔罗」App 发送的邮件里点击链接打开此页。", "");
+  }
+
+  function doReset() {
+    var pw1 = document.getElementById("pw1").value;
+    var pw2 = document.getElementById("pw2").value;
+    var msg = document.getElementById("resetMsg");
+    msg.className = "msg";
+    if (pw1.length < 6) { msg.textContent = "密码至少需要 6 位"; msg.className = "msg err"; return; }
+    if (pw1 !== pw2) { msg.textContent = "两次输入的密码不一致"; msg.className = "msg err"; return; }
+
+    var btn = document.getElementById("submitBtn");
+    btn.disabled = true; msg.textContent = "正在提交…";
+
+    fetch(SUPABASE_URL + "/auth/v1/user", {
+      method: "PUT",
+      headers: {
+        "apikey": APIKEY,
+        "Authorization": "Bearer " + accessToken,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ password: pw1 })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+    }).then(function (res) {
+      if (res.ok) {
+        showPanel("✅", "密码已重置成功！请返回「奥秘塔罗」App 用新密码登录。", "ok");
+      } else {
+        btn.disabled = false;
+        var e = (res.j && (res.j.msg || res.j.error_description || res.j.message)) || "重置失败，链接可能已过期，请回 App 重新发送邮件。";
+        msg.textContent = e; msg.className = "msg err";
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      msg.textContent = "网络错误，请稍后再试。"; msg.className = "msg err";
+    });
+  }
+
+  boot();
+</script>
+</body>
+</html>
