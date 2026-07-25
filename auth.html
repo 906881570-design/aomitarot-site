@@ -47,7 +47,6 @@
   <h1>奥秘塔罗</h1>
   <div id="loading" class="sub">正在处理…</div>
 
-  <!-- 重置密码表单 -->
   <div id="resetForm">
     <p class="sub">设置你的新密码</p>
     <input id="pw1" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password">
@@ -56,7 +55,6 @@
     <div id="resetMsg" class="msg"></div>
   </div>
 
-  <!-- 通用结果面板 -->
   <div id="panel" style="display:none;">
     <div id="panelIcon" class="icon"></div>
     <div id="panelMsg" class="sub"></div>
@@ -70,11 +68,13 @@
   var APIKEY = "sb_publishable_evyyS1SRTW85FDxG08JWwA_xZKVr3nV";
   var accessToken = null;
 
-  // 解析 URL # 片段（Supabase 跳转把令牌放在 hash 里）
-  function parseHash() {
-    var h = window.location.hash.replace(/^#/, "");
+  // 合并读取 query(?) 与 hash(#) 里的参数
+  function getParams() {
     var p = {};
-    h.split("&").forEach(function (kv) {
+    try {
+      new URLSearchParams(window.location.search).forEach(function (v, k) { p[k] = v; });
+    } catch (e) {}
+    window.location.hash.replace(/^#/, "").split("&").forEach(function (kv) {
       var i = kv.indexOf("=");
       if (i > 0) p[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
     });
@@ -87,29 +87,49 @@
     document.getElementById("panel").style.display = "block";
     document.getElementById("panelIcon").textContent = icon;
     var m = document.getElementById("panelMsg");
-    m.textContent = msg;
-    m.className = "sub " + (cls || "");
+    m.textContent = msg; m.className = "sub " + (cls || "");
   }
+  function showResetForm() {
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("resetForm").style.display = "block";
+  }
+  function confirmedMsg() { showPanel("✅", "邮箱已确认，账户已激活。请返回「奥秘塔罗」App 登录。", "ok"); }
+  function errMsg(t) { showPanel("⚠️", t || "链接无效或已过期，请回 App 重新发送邮件。", "err"); }
 
   function boot() {
-    var p = parseHash();
-    if (p.error_description || p.error) {
-      showPanel("⚠️", decodeURIComponent(p.error_description || p.error).replace(/\+/g, " "), "err");
-      return;
-    }
-    if (p.access_token && p.type === "recovery") {
-      // 进入重置密码流程
-      accessToken = p.access_token;
-      document.getElementById("loading").style.display = "none";
-      document.getElementById("resetForm").style.display = "block";
-      return;
-    }
+    var p = getParams();
+    if (p.error_description || p.error) { errMsg((p.error_description || p.error).replace(/\+/g, " ")); return; }
+
+    // 情况 A：隐式流，令牌已在 # 片段
     if (p.access_token) {
-      // 注册确认 / 其它成功回跳
-      showPanel("✅", "邮箱已确认，账户已激活。请返回「奥秘塔罗」App 登录。", "ok");
+      accessToken = p.access_token;
+      if (p.type === "recovery") { showResetForm(); } else { confirmedMsg(); }
       return;
     }
-    // 直接访问、无令牌
+
+    // 情况 B：token_hash 流（新版默认）——需主动调 verify 完成确认/换取会话
+    if (p.token_hash && p.type) {
+      fetch(SUPABASE_URL + "/auth/v1/verify", {
+        method: "POST",
+        headers: { "apikey": APIKEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: p.type, token_hash: p.token_hash })
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+      }).then(function (res) {
+        if (!res.ok) { errMsg(res.j && (res.j.msg || res.j.error_description || res.j.error)); return; }
+        accessToken = res.j && res.j.access_token;
+        if (p.type === "recovery") {
+          if (accessToken) { showResetForm(); } else { errMsg("未能获取重置凭据，请回 App 重新发送邮件。"); }
+        } else {
+          confirmedMsg();  // signup/email 确认成功
+        }
+      }).catch(function () { errMsg("网络错误，请稍后再试。"); });
+      return;
+    }
+
+    // 情况 C：PKCE code（静态页无 code_verifier，无法在此完成）
+    if (p.code) { errMsg("此确认链接需在 App 内完成，请返回 App 操作。"); return; }
+
     showPanel("🔮", "请从「奥秘塔罗」App 发送的邮件里点击链接打开此页。", "");
   }
 
@@ -126,11 +146,7 @@
 
     fetch(SUPABASE_URL + "/auth/v1/user", {
       method: "PUT",
-      headers: {
-        "apikey": APIKEY,
-        "Authorization": "Bearer " + accessToken,
-        "Content-Type": "application/json"
-      },
+      headers: { "apikey": APIKEY, "Authorization": "Bearer " + accessToken, "Content-Type": "application/json" },
       body: JSON.stringify({ password: pw1 })
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, j: j }; });
